@@ -4,7 +4,6 @@ from bluepy.btle import DefaultDelegate, Peripheral, Scanner
 from tb_gateway_mqtt import TBGatewayMqttClient
 import time
 import sys
-import threading
 import traceback
 
 #---------------------------------------------------------------------------------------------------
@@ -161,88 +160,52 @@ while True:
                 ble_periph = dev_data["periph"]
                 tb_dev_name = dev_data["tb_name"]
 
-                # Device can support two modes, but must operate in a single mode at a time
-                # This is a simplification, that allow to avoid heavy synchronization required for 
-                # eleminating race conditions in the bluepy library.
-                # Rationale as follows:
-                #  - waitForNotifications() requires a lock in the notification thread
-                #  - connect()/read_characteristics() requires a lock in the poll thread
-                #  - waitForNotifications() must block for substantial amount of time to _not_
-                #    miss any notification
-                #  - poll thread will stall in the same time
-                #  - when poll thread will execute its read() procedure, notifications will be 
-                #    missed
+                telemetry = {}
+
+                print("Connecting to device:", tb_dev_name)
+                ble_periph.connect(dev_addr)
 
                 if instance.notify_supported():
                     if instance.notify_started() == False:
-                        class NotiDelegate(DefaultDelegate):
-                            def __init__(self):
-                                DefaultDelegate.__init__(self)
-                                self.dev_instance = instance
-
-                            def handleNotification(self, handle, data):
-                                print("Received notifications for handle:", handle)
-                                telemetry = self.dev_instance.handle_notify(handle, data)
-                                
-                                # Sending data to ThingsBoard
-                                
-                                gateway.gw_connect_device(tb_dev_name)
-                                gateway_pkt = { "ts": int(round(time.time() * 1000)), "values" : telemetry }
-                                gateway.gw_send_telemetry(tb_dev_name, gateway_pkt)
-                                gateway.gw_disconnect_device(tb_dev_name)
-
-                        class NotiThread(threading.Thread):
-                            def __init__(self):
-                                threading.Thread.__init__(self)
-                                self.stop = False
-
-                            def run(self):
-                                    try:
-                                        print("Connecting to:", dev_addr)
-                                        ble_periph.connect(dev_addr)
-
-                                        while self.stop == False:
-                                            ble_periph.waitForNotifications(1)
-                                    except Exception as e: 
-                                        print("Failed to handle notifications for:", dev_addr)
-                                        print(e)
-                                        traceback.print_exc()
-                                        # TODO: should we do here something else?
-                                        instance.stop_notify()
-                                        # TODO: prove that disconnect() throws or not
-                                        ble_periph.disconnect()
-                                        return
-
-                            def stop(self):
-                                self.stop = True
-
-                        print("Starting notification thread for device:", tb_dev_name)
-
-                        # Spawn a separate thread. Method stop() will allow us to halt it at any moment
-
-                        ble_periph.withDelegate(NotiDelegate())
                         instance.start_notify(ble_periph)
-                        thr = NotiThread()
-                        dev_data["noti_thread"] = thr
-                        thr.start()
-                    else:
-                        # Notify thread is already started, no need to do anything
-                        pass
-                else:
-                    print("Polling data from:", tb_dev_name)
 
-                    ble_periph.connect(dev_addr)
-                    telemetry = instance.poll(ble_periph)
-                    ble_periph.disconnect()
+                    class NotiDelegate(DefaultDelegate):
+                        def __init__(self):
+                            DefaultDelegate.__init__(self)
+                            self.dev_instance = instance
+                            self.telemetry = {}
 
-                    gateway.gw_connect_device(tb_dev_name)
-                    gateway_pkt = { "ts": int(round(time.time() * 1000)), "values" : telemetry }
-                    gateway.gw_send_telemetry(tb_device, gateway_pkt)
-                    gateway.gw_disconnect_device(tb_dev_name)
+                        def handleNotification(self, handle, data):
+                            print("Received notifications for handle:", handle)
+                            self.telemetry = self.dev_instance.handle_notify(handle, data)
+                            
+                    print("Getting notification from:", tb_dev_name)
+
+                    deleagate = NotiDelegate()
+                    ble_periph.withDelegate(deleagate)
+                    ble_periph.waitForNotifications(1)
+                    print("Data received:", deleagate.telemetry)
+                    
+                    telemetry.update(deleagate.telemetry)
+
+                print("Polling data from:", tb_dev_name)
+                poll_telemetry = instance.poll(ble_periph)
+                print("Data received:", poll_telemetry)
+
+                telemetry.update(poll_telemetry)
+
+                gateway.gw_connect_device(tb_dev_name)
+                gateway_pkt = { "ts": int(round(time.time() * 1000)), "values" : telemetry }
+                print("Sending data to TB:", gateway_pkt)
+                gateway.gw_send_telemetry(tb_dev_name, gateway_pkt)
+                gateway.gw_disconnect_device(tb_dev_name)
             except KeyboardInterrupt:
                 print("Exiting the application")
                 sys.exit()
             except Exception as e: 
                 print("Exception caught:", e)
+            finally:
+                print("Disconnecting from device")
+                ble_periph.disconnect()
 
     time.sleep(1)
