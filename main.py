@@ -90,15 +90,23 @@ class EspGattDemoDevice(BtDeviceInterface):
 
     def handle_notify(self, handle, data):
         # Helper routine
-        def bytes_to_int(bytes):
-            result = 0
-            for i in reversed(bytes):
-                result = (result << 8) + i
-            return result
+        def bcd_to_decimal(num):
+            return (10000 * ((num & 0xf0000) >> 16)) + \
+                   (1000 * ((num & 0xf000) >> 12)) + \
+                   (100 * ((num & 0xf00) >> 8)) + \
+                   (10 * ((num & 0xf0) >> 4)) + \
+                   (1 * ((num & 0xf) >> 0));
 
-        decoded = bytes_to_int(data)
-        print("Received GATT data from ESP:", data, "decoded:", decoded)
-        return { "counter_noti": decoded }
+        temperature = bcd_to_decimal(data[0]) / 100 + bcd_to_decimal(data[1] + data[2]);
+        humidity = bcd_to_decimal(data[4]) / 100 + bcd_to_decimal(data[5] + data[6]);
+
+        if data[3] == 0x13:
+            temperature *= -1;
+        if data[7] == 0x13:
+            humidity *= -1;
+
+        print("Received GATT data from ESP: T={}, H={}".format(temperature, humidity));
+        return { "temperature" : temperature, "humidity" : humidity }
 
 # Test device: arbitrary sensor
 class TestSensorDemoDevice(BtDeviceInterface):
@@ -192,7 +200,7 @@ while not known_devices_found:
 #---------------------------------------------------------------------------------------------------
 
 TB_SERVER = "localhost"
-TB_ACCESS_TOKEN = "ziVM6GV08dpGFOh1xBrp"
+TB_ACCESS_TOKEN = "JctN13NcUNv4Nt5WDVNE"
 
 gateway = TBGatewayMqttClient(TB_SERVER, TB_ACCESS_TOKEN)
 gateway.connect()
@@ -229,8 +237,8 @@ while True:
 
                     deleagate = NotiDelegate()
                     ble_periph.withDelegate(deleagate)
-                    ble_periph.waitForNotifications(1)
-                    print("Data received:", deleagate.telemetry)
+                    if ble_periph.waitForNotifications(1):
+                        print("Data received:", deleagate.telemetry)
 
                     telemetry.update(deleagate.telemetry)
 
