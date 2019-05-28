@@ -94,7 +94,7 @@ with open(CURRENT_SCRIPT_DIR + "/extensions/registered_extensions.json") as fl:
         }
 
 TB_SERVER = "localhost"
-TB_ACCESS_TOKEN = "xLd56zXQhZiUIsq4zjMF"
+TB_ACCESS_TOKEN = "JctN13NcUNv4Nt5WDVNE"
 
 rescan_required = True
 
@@ -145,8 +145,8 @@ while True:
 
                     deleagate = NotiDelegate()
                     ble_periph.withDelegate(deleagate)
-                    ble_periph.waitForNotifications(1)
-                    print("Data received:", deleagate.telemetry)
+                    if ble_periph.waitForNotifications(1):
+                        print("Data received:", deleagate.telemetry)
 
                     telemetry.update(deleagate.telemetry)
 

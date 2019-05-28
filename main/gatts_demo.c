@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -37,6 +38,8 @@
 
 #include "sdkconfig.h"
 
+#include "htu21d.h"
+
 #define GATTS_TAG "GATTS_DEMO"
 
 ///Declare the static function
@@ -53,6 +56,12 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 #define GATTS_DEMO_CHAR_VAL_LEN_MAX 0x40
 
 #define PREPARE_BUF_MAX_SIZE 1024
+
+#define POSITIVE_BCD  0x12
+#define NEGATIVE_BCD  0x13
+
+#define SDA_PIN 18
+#define SCL_PIN 19
 
 uint8_t char1_str[] = "char1";
 uint8_t char2_str[] = "char2";
@@ -263,8 +272,8 @@ void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble
         ESP_LOGI(GATTS_TAG,"ESP_GATT_PREP_WRITE_CANCEL");
     }
     if (prepare_write_env->prepare_buf) {
-        ESP_LOGI(GATTS_TAG, "[DEBUG] prepare_write_env->prepare_buf: %s", prepare_write_env->prepare_buf); 
-        ESP_LOGI(GATTS_TAG, "[DEBUG] prepare_write_env->prepare_len: %i", prepare_write_env->prepare_len); 
+        ESP_LOGI(GATTS_TAG, "[DEBUG] prepare_write_env->prepare_buf: %s", prepare_write_env->prepare_buf);
+        ESP_LOGI(GATTS_TAG, "[DEBUG] prepare_write_env->prepare_len: %i", prepare_write_env->prepare_len);
         esp_err_t response_err = esp_ble_gatts_set_attr_value(param->write.handle, prepare_write_env->prepare_len, prepare_write_env->prepare_buf);
         if(response_err != ESP_OK) {
             ESP_LOGE(GATTS_TAG, "Write characteristic value failed");
@@ -468,11 +477,33 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
     /* If the gatts_if equal to profile, call profile cb handler,
      * so here call each profile's callback */
     if (gatts_if == ESP_GATT_IF_NONE || /* ESP_GATT_IF_NONE, not specify a certain gatt_if, need to call every profile cb function */
-            gatts_if == gl_profile.gatts_if) {
+        gatts_if == gl_profile.gatts_if) {
         if (gl_profile.gatts_cb) {
             gl_profile.gatts_cb(event, gatts_if, param);
         }
     }
+}
+
+uint32_t decimal_to_bcd(uint32_t num)
+{
+    return ((num / 10000 * 9256) + ((num % 10000) / 1000 * 516) +
+            ((num % 1000) / 100 * 26) + (num % 100) / 10) * 6 + num;
+}
+
+/* Convert float value to binary coded decimal format.
+ * It takes eight bits to store fractional part of float and sixteen bits for integral part.
+ * Last eight bits store sign of value */
+uint32_t float_to_bcd(float num)
+{
+    uint32_t bcd = 0;
+    float integral;
+    float fractional = modff(fabs(num), &integral);
+
+    bcd |= decimal_to_bcd(integral) << 8;
+    bcd |= decimal_to_bcd(fractional * 100); // get first two digits from fractional part
+    bcd |= num >= 0 ? POSITIVE_BCD << 24 : NEGATIVE_BCD << 24;
+
+    return bcd;
 }
 
 void app_main()
@@ -533,16 +564,38 @@ void app_main()
         ESP_LOGE(GATTS_TAG, "set local  MTU failed, error code = %x", local_mtu_ret);
     }
 
-    int counter = 0;
-    while (true) {
-        if (gl_profile.conn) {
-            ret = esp_ble_gatts_send_indicate(gl_profile.gatts_if, gl_profile.conn_id, gl_profile.chars[0].handle, sizeof(counter), &counter, false);
-            if (ret == ESP_OK) {
-                ESP_LOGI(GATTS_TAG, "send notification success");
+    int htu21d_ret = htu21d_init(0, SDA_PIN, SCL_PIN, 0, 0);
+
+    if (htu21d_ret == HTU21D_ERR_CONFIG) {
+        ESP_LOGE(GATTS_TAG, "htu21d configuration error");
+    } else if (htu21d_ret == HTU21D_ERR_INSTALL) {
+        ESP_LOGE(GATTS_TAG, "htu21d driver installation error");
+    } else if (htu21d_ret == HTU21D_ERR_NOTFOUND) {
+        ESP_LOGE(GATTS_TAG, "htu21d sensor is not found");
+    } else {
+        while (true) {
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            if (gl_profile.conn) {
+                float temperature = ht21d_read_temperature();
+                float humidity = ht21d_read_humidity();
+
+                humidity = -1;
+                if (humidity < 0) {
+                    ESP_LOGE(GATTS_TAG, "humidity read failed with code %i", (int)humidity);
+                    continue;
+                }
+
+                uint32_t bcd[] = {
+                    float_to_bcd(temperature),
+                    float_to_bcd(humidity)
+                };
+
+                ret = esp_ble_gatts_send_indicate(gl_profile.gatts_if, gl_profile.conn_id, gl_profile.chars[0].handle, sizeof(bcd), (uint8_t *)bcd, false);
+                if (ret == ESP_OK) {
+                    ESP_LOGI(GATTS_TAG, "send notification success");
+                }
             }
         }
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        ++counter;
     }
 
     return;
