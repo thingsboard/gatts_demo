@@ -5,152 +5,17 @@ from tb_gateway_mqtt import TBGatewayMqttClient
 import time
 import sys
 import traceback
+import json
+import os
+import importlib
+
+CURRENT_SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 #---------------------------------------------------------------------------------------------------
 
-# Generic interface to allow getting data from different BLE sensors
-class BtDeviceInterface:
-    def __init__(self, noti_supported=False):
-        self.noti_supported = noti_supported
-
-    def poll(self, bt_device):
-        pass
-
-    def start_notify(self, bt_device):
-        pass
-
-    def stop_notify(self):
-        pass
-
-    def handle_notify(self, handle, data):
-        pass
-
-    def notify_started(self):
-        return False
-
-    def notify_supported(self):
-        return self.noti_supported
-
-# Extracts data from MI sensor and sends it to TB
-class MiTempHumiditySensor(BtDeviceInterface):
-    def __init__(self):
-        # Full-blown notifications are not supported: MI device will disconnect after a
-        # few notifications sent.
-        # So it is better to use poll mechanism instead
-        BtDeviceInterface.__init__(self)
-
-    def poll(self, bt_device):
-        class MI_Delegate(DefaultDelegate):
-            def __init__(self):
-                DefaultDelegate.__init__(self)
-                self.telemetry = {}
-
-            def handleNotification(self, handle, data):
-                print("Received data:", data)
-                self.telemetry = { "temperature" : float(data[2:6]), "humidity" : float(data[9:13]) }
-
-        delegate = MI_Delegate()
-        bt_device.withDelegate(delegate)
-
-        # This is a required part of MI sensor protocol.
-        # Without it, notification will not be delivered.
-        # For some reason the characteristic is not advertised, meaning it is not possible to use
-        # UUID here. Instead a write operation is performed by handle.
-        bt_device.writeCharacteristic(0x10, b'\x01\x00', True)
-        bt_device.waitForNotifications(1)
-        return delegate.telemetry
-
-# Extracts data from ESP test device and sends it to TB. Both polling and notifications
-# are supported.
-class EspGattDemoDevice(BtDeviceInterface):
-    def __init__(self):
-        BtDeviceInterface.__init__(self, noti_supported=True)
-        self.noti_started = False
-
-    def poll(self, bt_device):
-
-        # Example of getting values using direct 'read' mechanism
-
-        esp_service = bt_device.getServiceByUUID("000000ff-0000-1000-8000-00805f9b34fb")
-        esp_char = esp_service.getCharacteristics("0000ff00-0000-1000-8000-00805f9b34fb")[0]
-        char_value = str(esp_char.read(), 'utf-8')
-
-        return { "esp_char" : char_value.strip('\u0000') }
-
-    def start_notify(self, bt_device):
-        # No need in a special preparation before notification starts
-        self.noti_started = True
-
-    def stop_notify(self):
-        # No need in a special preparation before notification starts
-        self.noti_started = False
-
-    def notify_started(self):
-        return self.noti_started
-
-    def handle_notify(self, handle, data):
-        # Helper routine
-        def bytes_to_int(bytes):
-            result = 0
-            for i in reversed(bytes):
-                result = (result << 8) + i
-            return result
-
-        decoded = bytes_to_int(data)
-        print("Received GATT data from ESP:", data, "decoded:", decoded)
-        return { "counter_noti": decoded }
-
-# Test device: arbitrary sensor
-class TestSensorDemoDevice(BtDeviceInterface):
-    def __init__(self):
-        BtDeviceInterface.__init__(self, noti_supported=True)
-        self.noti_started = False
-
-    def poll(self, bt_device):
-        return { }
-
-    def start_notify(self, bt_device):
-        # No need in a special preparation before notification starts
-        self.noti_started = True
-
-    def stop_notify(self):
-        # No need in a special preparation before notification starts
-        self.noti_started = False
-
-    def notify_started(self):
-        return self.noti_started
-
-    def handle_notify(self, handle, data):
-        # Helper routine
-        def bytes_to_int(bytes):
-            result = 0
-            for i in reversed(bytes):
-                result = (result << 8) + i
-            return result
-
-        decoded = bytes_to_int(data)
-        print("Received GATT data from Test sensor:", data, "decoded:", decoded)
-        return { "decoded_data": decoded }
-
 # Contains devices that we should connect to and extract data.
 # Some aux data is written in runtime
-known_devices = {
-    "MJ_HT_V1": {
-        "handler": MiTempHumiditySensor,
-        "scanned": {}
-    },
-    "ESP_GATTS_DEMO": {
-        "handler": EspGattDemoDevice,
-        "scanned": {}
-    },
-    # TODO: add support for test sensors and random addresses
-    # (which require new scan every time)
-    # "TEST_SENSOR": {
-    #     "handler": TestSensorDemoDevice,
-    #     "scanned": {},
-    #     "addr_type": "random"
-    # }
-}
+known_devices = { }
 
 #---------------------------------------------------------------------------------------------------
 
@@ -196,7 +61,7 @@ def ble_rescan(tb_gateway):
                         tb_name = value + "_" + dev.addr.replace(':', '').upper()
 
                         known_devices[value]["scanned"][dev.addr] = {
-                            "inst": known_devices[value]["handler"](),
+                            "inst": known_devices[value]["extension"](),
                             "periph": Peripheral(),
                             "tb_name": tb_name
                         }
@@ -211,6 +76,22 @@ def ble_rescan(tb_gateway):
             print("Exception caught:", e)
 
 #---------------------------------------------------------------------------------------------------
+
+def import_extension(name):
+    return importlib.import_module("extensions." + name)
+
+# Load extensions for interacting with devices
+
+with open(CURRENT_SCRIPT_DIR + "/extensions/registered_extensions.json") as fl:  
+    data = json.load(fl)
+    for extension_name, extension_data in data.items():
+        print("Loading", extension_name, "extension...")
+        extension_module = import_extension(extension_name)
+        extension_class = extension_module.Extension
+        known_devices[extension_data["ble_name"]] = {
+            "extension": extension_class,
+            "scanned": {}
+        }
 
 TB_SERVER = "localhost"
 TB_ACCESS_TOKEN = "xLd56zXQhZiUIsq4zjMF"
