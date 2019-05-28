@@ -215,12 +215,24 @@ def ble_rescan(tb_gateway):
 TB_SERVER = "localhost"
 TB_ACCESS_TOKEN = "xLd56zXQhZiUIsq4zjMF"
 
+rescan_required = True
+
+def on_server_side_rpc_request(request_id, request_body):
+    print("Received TB RPC call", request_body)
+    if request_body["method"] == "doRescan":
+        print("Scheduling rescan")
+        global rescan_required
+        rescan_required = True
+
 gateway = TBGatewayMqttClient(TB_SERVER, TB_ACCESS_TOKEN)
+gateway.set_server_side_rpc_request_handler(on_server_side_rpc_request)
 gateway.connect()
 
-ble_rescan(gateway)
-
 while True:
+    if rescan_required:
+        ble_rescan(gateway)
+        rescan_required = False
+
     for type, type_data in known_devices.items():
         for dev_addr, dev_data in type_data["scanned"].items():
             try:
