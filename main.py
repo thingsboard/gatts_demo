@@ -154,48 +154,71 @@ known_devices = {
 
 #---------------------------------------------------------------------------------------------------
 
-# Scan for known devices
+def ble_rescan(tb_gateway):
+    # Scan for known devices
 
-class ScanDelegate(DefaultDelegate):
-    def __init__(self):
-        DefaultDelegate.__init__(self)
+    class ScanDelegate(DefaultDelegate):
+        def __init__(self):
+            DefaultDelegate.__init__(self)
 
-    def handleDiscovery(self, dev, isNewDev, isNewData):
-        if isNewDev:
-            print("Discovered BT device:", dev.addr)
-        elif isNewData:
-            print("Received new data from:", dev.addr)
+        def handleDiscovery(self, dev, isNewDev, isNewData):
+            if isNewDev:
+                print("Discovered BT device:", dev.addr)
+            elif isNewData:
+                print("Received new data from:", dev.addr)
 
-known_devices_found = False
+    known_devices_found = False
 
-while not known_devices_found:
-    try:
-        print("Scanning BLE devices...")
-        scanner = Scanner().withDelegate(ScanDelegate())
-        devices = scanner.scan(15.0)
+    # Deactivate and clear existing devices before re-scanning
+    for dev, dev_data in known_devices.items():
+        for scanned, scanned_data in dev_data["scanned"].items():
+            tb_name = scanned_data["tb_name"]
 
-        for dev in devices:
-            print("Device {} ({}), RSSI={} dB".format(dev.addr, dev.addrType, dev.rssi))
-            for (adtype, desc, value) in dev.getScanData():
-                print("  {} = {}".format(desc, value))
-                if desc == "Complete Local Name" and value in known_devices:
-                    print("    [!] Known device found:", value)
-                    known_devices[value]["scanned"][dev.addr] = {
-                        "inst": known_devices[value]["handler"](),
-                        "periph": Peripheral(),
-                        "tb_name": value + "_" + dev.addr
-                    }
-                    known_devices_found = True
-    except Exception as e:
-        print("Exception caught:", e)
+            tb_gateway.gw_connect_device(tb_name)
+            tb_gateway.gw_send_attributes(tb_name, {"active": False})
+            tb_gateway.gw_disconnect_device(tb_name)
+
+        dev_data["scanned"].clear()
+
+    while not known_devices_found:
+        try:
+            print("Scanning BLE devices...")
+            scanner = Scanner().withDelegate(ScanDelegate())
+            devices = scanner.scan(15.0)
+
+            for dev in devices:
+                print("Device {} ({}), RSSI={} dB".format(dev.addr, dev.addrType, dev.rssi))
+                for (adtype, desc, value) in dev.getScanData():
+                    print("  {} = {}".format(desc, value))
+                    if desc == "Complete Local Name" and value in known_devices:
+                        print("    [!] Known device found:", value)
+
+                        tb_name = value + "_" + dev.addr.replace(':', '').upper()
+
+                        known_devices[value]["scanned"][dev.addr] = {
+                            "inst": known_devices[value]["handler"](),
+                            "periph": Peripheral(),
+                            "tb_name": tb_name
+                        }
+
+                        # Force TB to create a device
+                        tb_gateway.gw_connect_device(tb_name)
+                        tb_gateway.gw_send_attributes(tb_name, {"active": True})
+                        tb_gateway.gw_disconnect_device(tb_name)
+
+                        known_devices_found = True
+        except Exception as e:
+            print("Exception caught:", e)
 
 #---------------------------------------------------------------------------------------------------
 
 TB_SERVER = "localhost"
-TB_ACCESS_TOKEN = "ziVM6GV08dpGFOh1xBrp"
+TB_ACCESS_TOKEN = "xLd56zXQhZiUIsq4zjMF"
 
 gateway = TBGatewayMqttClient(TB_SERVER, TB_ACCESS_TOKEN)
 gateway.connect()
+
+ble_rescan(gateway)
 
 while True:
     for type, type_data in known_devices.items():
@@ -203,7 +226,7 @@ while True:
             try:
                 instance = dev_data["inst"]
                 ble_periph = dev_data["periph"]
-                tb_dev_name = dev_data["tb_name"].replace(':', '')
+                tb_dev_name = dev_data["tb_name"]
 
                 telemetry = {}
 
