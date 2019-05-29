@@ -16,7 +16,8 @@ class Extension(ExtensionInterface.ExtensionInterface):
         char_value = str(esp_char.read(), 'utf-8')
 
         return { "esp_char" : char_value.strip('\u0000') }
-
+    # def notify_supported(self):
+    #     return True
     def start_notify(self, bt_device):
         # No need in a special preparation before notification starts
         self.noti_started = True
@@ -30,12 +31,20 @@ class Extension(ExtensionInterface.ExtensionInterface):
 
     def handle_notify(self, handle, data):
         # Helper routine
-        def bytes_to_int(bytes):
-            result = 0
-            for i in reversed(bytes):
-                result = (result << 8) + i
-            return result
+        def bcd_to_decimal(num):
+            return (10000 * ((num & 0xf0000) >> 16)) + \
+                   (1000 * ((num & 0xf000) >> 12)) + \
+                   (100 * ((num & 0xf00) >> 8)) + \
+                   (10 * ((num & 0xf0) >> 4)) + \
+                   (1 * ((num & 0xf) >> 0));
 
-        decoded = bytes_to_int(data)
-        print("Received GATT data from ESP:", data, "decoded:", decoded)
-        return { "counter_noti": decoded }
+        temperature = bcd_to_decimal(data[0]) / 100 + bcd_to_decimal(data[1] + data[2]);
+        humidity = bcd_to_decimal(data[4]) / 100 + bcd_to_decimal(data[5] + data[6]);
+
+        if data[3] == 0x13:
+            temperature *= -1;
+        if data[7] == 0x13:
+            humidity *= -1;
+
+        print("Received GATT data from ESP: T={}, H={}".format(temperature, humidity));
+        return { "temperature" : temperature, "humidity" : humidity }
