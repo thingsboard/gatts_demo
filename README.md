@@ -22,8 +22,15 @@
 **_TODO:_ Add final picture of setup**
 
 #### Raspberry Pi
-Just connect it to power supply and install Raspbian or Noobs on it.
+In this setup we use Raspberry Pi 2 Model B V1.1 with Raspbian GNU/Linux 9.8 (stretch) installed on it. It does't support Bluetooth, so you need a usb dongle. We use Grand-X BT40G.
+Make sure your dongle is recognized by system. You can check it with the following command:
+```
+$> lsusb
+...
+Cambridge Silicon Radio, Ltd Bluetooth Dongle (HCI mode)
+...
 
+```
 
 ## Programming ESP32
 You need ESP-IDF (Espressif IoT Development Framework) to program your ESP32.
@@ -43,7 +50,7 @@ The python packages required by ESP-IDF are located in IDF_PATH/requirements.txt
 python -m pip install --user -r $IDF_PATH/requirements.txt
 ```
 ##### Note
-Please check the version of the Python interpreter that you will be using with ESP-IDF. For this, run the command python --version and depending on the result, you might want to use python2, python2.7 or similar instead of just python, e.g.
+Please check the version of the Python interpreter that you will be using with ESP-IDF. For this, run the command `python --version` and depending on the result, you might want to use python2, python2.7 or similar instead of just python, e.g.
 
 See [this](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/index.html) guide for more info.
 

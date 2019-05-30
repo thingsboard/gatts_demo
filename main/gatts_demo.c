@@ -579,7 +579,6 @@ void app_main()
                 float temperature = ht21d_read_temperature();
                 float humidity = ht21d_read_humidity();
 
-                humidity = -1;
                 if (humidity < 0) {
                     ESP_LOGE(GATTS_TAG, "humidity read failed with code %i", (int)humidity);
                     continue;
