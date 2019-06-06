@@ -172,7 +172,6 @@ void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble
 
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
-    ESP_LOGI(GATTS_TAG, "[DEBUG] gap_event_handler");
     switch (event) {
     case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
         adv_config_done &= (~adv_config_flag);
@@ -215,7 +214,6 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 
 void example_write_event_env(esp_gatt_if_t gatts_if, prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param)
 {
-    ESP_LOGI(GATTS_TAG, "[DEBUG] example_write_event_env");
     esp_gatt_status_t status = ESP_GATT_OK;
     if (param->write.need_rsp) {
         if (param->write.is_prep) {
@@ -265,15 +263,12 @@ void example_write_event_env(esp_gatt_if_t gatts_if, prepare_type_env_t *prepare
 
 void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param)
 {
-    ESP_LOGI(GATTS_TAG, "[DEBUG] example_exec_write_event_env");
     if (param->exec_write.exec_write_flag == ESP_GATT_PREP_WRITE_EXEC) {
         esp_log_buffer_hex(GATTS_TAG, prepare_write_env->prepare_buf, prepare_write_env->prepare_len);
     } else {
         ESP_LOGI(GATTS_TAG,"ESP_GATT_PREP_WRITE_CANCEL");
     }
     if (prepare_write_env->prepare_buf) {
-        ESP_LOGI(GATTS_TAG, "[DEBUG] prepare_write_env->prepare_buf: %s", prepare_write_env->prepare_buf);
-        ESP_LOGI(GATTS_TAG, "[DEBUG] prepare_write_env->prepare_len: %i", prepare_write_env->prepare_len);
         esp_err_t response_err = esp_ble_gatts_set_attr_value(param->write.handle, prepare_write_env->prepare_len, prepare_write_env->prepare_buf);
         if(response_err != ESP_OK) {
             ESP_LOGE(GATTS_TAG, "Write characteristic value failed");
@@ -286,7 +281,6 @@ void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble
 
 static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 {
-    ESP_LOGI(GATTS_TAG, "[DEBUG] gatts_profile_event_handler");
     switch (event) {
     case ESP_GATTS_REG_EVT:
         ESP_LOGI(GATTS_TAG, "REGISTER_APP_EVT, status %d, app_id %d\n", param->reg.status, param->reg.app_id);
@@ -337,7 +331,6 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     }
     case ESP_GATTS_WRITE_EVT: {
         ESP_LOGI(GATTS_TAG, "GATT_WRITE_EVT, conn_id %d, trans_id %d, handle %d", param->write.conn_id, param->write.trans_id, param->write.handle);
-        ESP_LOGI(GATTS_TAG, "[DEBUG] param->write.value: %s %u", param->write.value, param->write.len);
 
         if (!param->write.is_prep) {
             ESP_LOGI(GATTS_TAG, "GATT_WRITE_EVT, value len %d, value :", param->write.len);
@@ -395,8 +388,6 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
         if (get_attr_ret == ESP_FAIL) {
             ESP_LOGE(GATTS_TAG, "ILLEGAL HANDLE");
         }
-
-        ESP_LOGI(GATTS_TAG, "the gatts demo char length = %x\n", length);
 
         for(int i = 0; i < length; i++) {
             ESP_LOGI(GATTS_TAG, "prf_char[%x] =%x\n",i,prf_char[i]);
@@ -461,7 +452,6 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 
 static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 {
-    ESP_LOGI(GATTS_TAG, "[DEBUG] gatts_event_handler");
     /* If event is register event, store the gatts_if for each profile */
     if (event == ESP_GATTS_REG_EVT) {
         if (param->reg.status == ESP_GATT_OK) {
@@ -508,6 +498,8 @@ uint32_t float_to_bcd(float num)
 
 void app_main()
 {
+    ESP_LOGI(GATTS_TAG, "starting ESP gatt demo");
+
     esp_err_t ret;
 
     // Initialize NVS.
@@ -558,8 +550,7 @@ void app_main()
         ESP_LOGE(GATTS_TAG, "gatts app register error, error code = %x", ret);
         return;
     }
-//    esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(500);
-    esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(27);
+    esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(500);
     if (local_mtu_ret) {
         ESP_LOGE(GATTS_TAG, "set local  MTU failed, error code = %x", local_mtu_ret);
     }
